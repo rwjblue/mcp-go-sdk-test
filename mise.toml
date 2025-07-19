@@ -1,0 +1,15 @@
+[tools]
+go = "1.24"
+gotestsum = "latest"
+
+[tasks.test]
+run = "gotestsum -- -v ./..."
+description = "Run tests with gotestsum"
+
+[tasks.build]
+run = "go build -o bin/server ."
+description = "Build the server binary"
+
+[tasks.dev]
+run = "go run ."
+description = "Run the server in development mode"
