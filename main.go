@@ -36,12 +36,8 @@ func echoTool(ctx context.Context, session *mcp.ServerSession, params *mcp.CallT
 	}, nil
 }
 
-func mcpHandler(w http.ResponseWriter, r *http.Request) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
-
-	loggingMiddleware := func(next mcp.MethodHandler[*mcp.ServerSession]) mcp.MethodHandler[*mcp.ServerSession] {
+func createLoggingMiddleware(logger *slog.Logger) mcp.Middleware[*mcp.ServerSession] {
+	return func(next mcp.MethodHandler[*mcp.ServerSession]) mcp.MethodHandler[*mcp.ServerSession] {
 		return func(ctx context.Context, session *mcp.ServerSession, method string, params mcp.Params) (mcp.Result, error) {
 			logger.Info(
 				"MCP method started",
@@ -75,7 +71,9 @@ func mcpHandler(w http.ResponseWriter, r *http.Request) {
 			return result, err
 		}
 	}
+}
 
+func createMCPServer(logger *slog.Logger) *mcp.Server {
 	server := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "echo-server",
@@ -84,7 +82,7 @@ func mcpHandler(w http.ResponseWriter, r *http.Request) {
 		nil,
 	)
 
-	server.AddReceivingMiddleware(loggingMiddleware)
+	server.AddReceivingMiddleware(createLoggingMiddleware(logger))
 
 	mcp.AddTool(
 		server,
@@ -96,14 +94,20 @@ func mcpHandler(w http.ResponseWriter, r *http.Request) {
 		echoTool,
 	)
 
-	handler := mcp.NewStreamableHTTPHandler(
+	return server
+}
+
+func createMCPHandler() http.Handler {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	return mcp.NewStreamableHTTPHandler(
 		func(request *http.Request) *mcp.Server {
-			return server
+			return createMCPServer(logger)
 		},
 		nil,
 	)
-
-	handler.ServeHTTP(w, r)
 }
 
 func main() {
@@ -112,7 +116,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/readiness", readinessHandler)
-	mux.HandleFunc("/mcp", mcpHandler)
+	mux.Handle("/mcp", createMCPHandler())
 
 	server := &http.Server{
 		Addr:    ":" + *port,
