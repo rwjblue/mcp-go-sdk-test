@@ -5,7 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
+	"os"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -34,6 +37,45 @@ func echoTool(ctx context.Context, session *mcp.ServerSession, params *mcp.CallT
 }
 
 func mcpHandler(w http.ResponseWriter, r *http.Request) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	loggingMiddleware := func(next mcp.MethodHandler[*mcp.ServerSession]) mcp.MethodHandler[*mcp.ServerSession] {
+		return func(ctx context.Context, session *mcp.ServerSession, method string, params mcp.Params) (mcp.Result, error) {
+			logger.Info(
+				"MCP method started",
+				"method", method,
+				"session_id", session.ID(),
+				"has_params", params != nil,
+			)
+
+			start := time.Now()
+			result, err := next(ctx, session, method, params)
+			duration := time.Since(start)
+
+			if err != nil {
+				logger.Error(
+					"MCP method failed",
+					"method", method,
+					"session_id", session.ID(),
+					"duration_ms", duration.Milliseconds(),
+					"err", err,
+				)
+			} else {
+				logger.Info(
+					"MCP method completed",
+					"method", method,
+					"session_id", session.ID(),
+					"duration_ms", duration.Milliseconds(),
+					"has_result", result != nil,
+				)
+			}
+
+			return result, err
+		}
+	}
+
 	server := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "echo-server",
@@ -41,6 +83,8 @@ func mcpHandler(w http.ResponseWriter, r *http.Request) {
 		},
 		nil,
 	)
+
+	server.AddReceivingMiddleware(loggingMiddleware)
 
 	mcp.AddTool(
 		server,
@@ -78,4 +122,3 @@ func main() {
 	fmt.Printf("Server starting on port %s\n", *port)
 	log.Fatal(server.ListenAndServe())
 }
-
