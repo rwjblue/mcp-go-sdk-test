@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -84,12 +85,23 @@ func createMCPServer(logger *slog.Logger) *mcp.Server {
 
 	server.AddReceivingMiddleware(createLoggingMiddleware(logger))
 
+	inputSchema := &jsonschema.Schema{}
+	inputSchema.UnmarshalJSON([]byte(`{
+		"type": "object",
+		"properties": {
+			"message": {
+				"type": "string",
+				"description": "The message to echo"
+			}
+		}
+	}`))
+
 	mcp.AddTool(
 		server,
 		&mcp.Tool{
 			Name:        "echo",
 			Description: "Echoes the input message",
-			InputSchema: nil,
+			InputSchema: inputSchema,
 		},
 		echoTool,
 	)
