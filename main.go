@@ -109,14 +109,31 @@ func createMCPServer(logger *slog.Logger) *mcp.Server {
 	return server
 }
 
-func createMCPHandler() http.Handler {
+// createStatelessMCPHandler creates a truly stateless MCP handler using the new transport
+func createStatelessMCPHandler() http.Handler {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 
+	return NewStatelessStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
+		logger.Info("Creating new MCP server instance for stateless request", "method", request.Method, "path", request.URL.Path)
+		return createMCPServer(logger)
+	})
+}
+
+// Stateful implementation - reuses a single server instance across requests
+func createStatefulMCPHandler() http.Handler {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
+	// Create server once and reuse it
+	sharedServer := createMCPServer(logger)
+
 	return mcp.NewStreamableHTTPHandler(
 		func(request *http.Request) *mcp.Server {
-			return createMCPServer(logger)
+			logger.Info("Reusing existing MCP server instance (stateful)", "request_id", request.Header.Get("X-Request-ID"))
+			return sharedServer
 		},
 		nil,
 	)
@@ -128,7 +145,8 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/readiness", readinessHandler)
-	mux.Handle("/mcp", createMCPHandler())
+	mux.Handle("/mcp-stateful", createStatefulMCPHandler())
+	mux.Handle("/mcp-stateless", createStatelessMCPHandler())
 
 	server := &http.Server{
 		Addr:    ":" + *port,
@@ -136,5 +154,9 @@ func main() {
 	}
 
 	fmt.Printf("Server starting on port %s\n", *port)
+	fmt.Printf("Endpoints:\n")
+	fmt.Printf("  /readiness - Health check\n")
+	fmt.Printf("  /mcp-stateful - Stateful MCP server (shared instance)\n")
+	fmt.Printf("  /mcp-stateless - Truly stateless MCP (custom transport, no sessions)\n")
 	log.Fatal(server.ListenAndServe())
 }
